@@ -49,6 +49,7 @@ class Cource:
     ACTIONS = 11     # 取れる行動の種類数
     OBS_SIZE = (CAR_SITE_R*2)**2
     FIELD_R = FIELD_SIZE
+    N_AGENTS = 4
     def __init__(self):
         self.turn = 0
         self.action_space = spaces.Discrete(self.ACTIONS)
@@ -59,24 +60,36 @@ class Cource:
         """
         self.field = np.zeros((MAP_SIZE, MAP_SIZE))
         self._rewrite_map()
+        self.cars = []
 
-        car_dir = np.random.rand() * math.pi*2 - math.pi
-        pos_dir = np.random.rand() * math.pi*2 - math.pi
-        dist = np.random.rand() * 3 + self.FIELD_R/2
-        x = np.cos(pos_dir)*dist
-        y = np.sin(pos_dir)*dist
-        self.car = Car(x, y, car_dir)
+        for i in range(self.N_AGENTS):
+            car_dir = np.random.rand() * math.pi*2 - math.pi
+            pos_dir = np.random.rand() * math.pi*2 - math.pi
+            dist = np.random.rand() * 3 + self.FIELD_R/2
+            x = np.cos(pos_dir)*dist
+            y = np.sin(pos_dir)*dist
+            self.cars.append(Car(x, y, car_dir, i))
         # self.car = Car(8, 0, math.pi/2)
+        self.car_filter = self.cars[0].get_filter()
         self.turn = 0
-        return self.car.observe(self.field)
+        return self.get_observes()
+
+    def get_observes(self):
+        obs = []
+        for car in self.cars:
+            obs.append(car.observe(self.field))
+        return obs
 
     def render(self):
         """
         ステップごとの描画関数
         """
-        print('turn: %3d; car=%s' % (self.turn, str(self.car)))
+        info = 'turn: %3d\n' % self.turn
+        for i, car in enumerate(self.cars):
+            info += 'car %d: %s\n' % (i, str(car))
+        print(info)
 
-    def step(self, action):
+    def step(self, actions):
         """
         agentが選んだ行動が与えられるので
         環境を変更し，観察値や報酬を返す
@@ -91,17 +104,41 @@ class Cource:
             done   : boolean    : 終了したか否か
             info   : str (自由?): (デバッグ用などの)情報
         """
-        pre_vec = self.car.get_vec()
-        self.car.update(action)
-        dist = self.car._dist()
-        reward = 0
-        if dist >= self.FIELD_R:
-            self.car.force_move(dist, dist-self.FIELD_R)
-        done = self.turn >= 2000
-        reward += math.sqrt(dist2(self.car.get_vec(), pre_vec))/self.FIELD_R
-        info = str(self.car)
+        if len(actions) != len(self.cars):
+            print('Action number is wrong.')
+            return
+        self._rewrite_map()
+        result = []
+        for action, car in zip(actions, self.cars):
+            pre_vec = car.get_vec()
+            car.update(action)
+            dist = car._dist()
+            reward = 0
+            if dist >= self.FIELD_R:
+                car.force_move(dist, dist-self.FIELD_R)
+            done = self.turn >= 2000
+            reward += math.sqrt(dist2(car.get_vec(), pre_vec))/self.FIELD_R
+            info = str(car)
+            result.append((car.observe(self.field), reward, done, info))
+            dx = int(car.x) + OFFSET
+            dy = int(car.y) + OFFSET
+            filter_len = len(self.car_filter)
+            _field = self.field[
+                dx-car.CAR_R : dx-car.CAR_R+filter_len,
+                dy-car.CAR_R : dy-car.CAR_R+filter_len
+            ]
+            _field = np.maximum(_field, self.car_filter)
+            # for i in range(len(self.car_filter)):
+            #     for j in range(len(self.car_filter)):
+            #         self.field[i-car.CAR_R+dx][j-car.CAR_R+dy] |= self.car_filter[i][j]
+            for other in self.cars:
+                if other.id == car.id:
+                    continue
+                if car.collide(other):
+                    reward -= 10
+
         self.turn += 1
-        return self.car.observe(self.field), reward, done, info
+        return result
 
     def _rewrite_map(self):
         shape = self.field.shape
@@ -110,6 +147,8 @@ class Cource:
             for j in range(shape[1]):
                 if (i-OFFSET)**2 + (j-OFFSET)**2 > sq_size:
                     self.field[i][j] = 1
+                else:
+                    self.field[i][j] = 0
 
     def _calc_angle_diff(self, a, b):
         if same(a, b):
@@ -125,6 +164,12 @@ class Cource:
         """
         return self.action_space.sample
 
+    def get_vecs(self):
+        vecs = []
+        for car in self.cars:
+            vecs.append(car.get_vec())
+        return vecs
+
 
 class Car:
     """
@@ -135,19 +180,20 @@ class Car:
     OP_BRK = 2
     OP_RT = 4     # 右ハンドル操作
     OP_LT = 8     # 左ハンドル操作
-    HND_GRD = 0.1 # 方向転換の度合い
+    HND_GRD = 0.3 # 方向転換の度合い
     SPEED = 0.15   # アクセルの加速度
     SPEED_DEC = 0.9 # 減速度
     MAX_SPEED = 3
 
-    CAR_R = 5
+    CAR_R = 8
     SITE_R = CAR_SITE_R
     SITE_R_LARGE = int(SITE_R*1.5)
     SITE_R_DIFF = SITE_R_LARGE - SITE_R
-    def __init__(self, _x, _y, _dir):
+    def __init__(self, _x, _y, _dir, _id):
         """
         現在位置と向き(絶対角度)を持つ
         """
+        self.id = _id
         self.x = _x
         self.y = _y
         self.v = 0
@@ -172,6 +218,14 @@ class Car:
             self.SITE_R_DIFF : self.SITE_R_DIFF + self.SITE_R*2
         ]
         return np.array(sub_map, dtype=np.float32)
+
+    def get_filter(self):
+        fil = [[0]*self.CAR_R*2 for i in range(self.CAR_R*2)]
+        for i in range(self.CAR_R*2):
+            for j in range(self.CAR_R*2):
+                if (i-self.CAR_R)**2 + (j-self.CAR_R)**2 < self.CAR_R**2:
+                    fil[i][j] = 1
+        return np.array(fil)
 
     def _dist(self):
         return math.sqrt(self.x**2 + self.y**2)

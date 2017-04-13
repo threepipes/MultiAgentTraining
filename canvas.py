@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 キーボードの左右で履歴の再生，巻き戻し
 """
 
+CAR_R = 8
+
 def draw(pos_list):
     (w, h) = (800, 800)
     (x, y) = (w//2, h//2)
@@ -22,10 +24,11 @@ def draw(pos_list):
         pygame.time.wait(30)
         screen.fill((0, 20, 0, 0))
         if turn < len(pos_list):
-            x = ox + int(pos_list[turn][0])
-            y = oy - int(pos_list[turn][1])
-        pygame.draw.circle(screen, (0, 200, 0), (x, y), 5)
-        pygame.draw.line(screen, (100, 200, 0), (x, y), (ox, oy))
+            for pos in pos_list[turn]:
+                x = ox + int(pos[0])
+                y = oy - int(pos[1])
+                pygame.draw.circle(screen, (0, 200, 0), (x, y), CAR_R)
+                pygame.draw.line(screen, (100, 200, 0), (x, y), (ox, oy))
         pressed = pygame.key.get_pressed()
         if pressed[pygame.K_LEFT] and turn > 0:
             turn -= 1
@@ -78,7 +81,7 @@ if __name__ == '__main__':
         screen.fill((0, 20, 0, 0))
         x =  int(car.x) + ox
         y = -int(car.y) + oy
-        pygame.draw.circle(screen, (0, 200, 0), (x, y), 5)
+        pygame.draw.circle(screen, (0, 200, 0), (x, y), CAR_R)
         pygame.draw.line(screen, (100, 200, 0), (x, y), (ox, oy))
         command = 0
         pressed = pygame.key.get_pressed()
