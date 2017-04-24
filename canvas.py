@@ -71,18 +71,22 @@ if __name__ == '__main__':
     env = Cource()
     env.reset()
 
-    car = env.car
+    cars = env.cars
+    car = cars[0]
     ox, oy = x, y
     turn = 0
 
+    actions = [0]*len(cars)
+
     while True:
         pygame.display.update()
-        pygame.time.wait(500)
+        pygame.time.wait(33)
         screen.fill((0, 20, 0, 0))
-        x =  int(car.x) + ox
-        y = -int(car.y) + oy
-        pygame.draw.circle(screen, (0, 200, 0), (x, y), CAR_R)
-        pygame.draw.line(screen, (100, 200, 0), (x, y), (ox, oy))
+        for c in cars:
+            x =  int(c.x) + ox
+            y = -int(c.y) + oy
+            pygame.draw.circle(screen, (0, 200, 0), (x, y), CAR_R)
+            pygame.draw.line(screen, (100, 200, 0), (x, y), (ox, oy))
         command = 0
         pressed = pygame.key.get_pressed()
         if pressed[pygame.K_LEFT]:
@@ -93,13 +97,16 @@ if __name__ == '__main__':
             command |= car.OP_ACC
         if pressed[pygame.K_x]:
             command |= car.OP_BRK
-        obs, rew, done, _ = env.step(command)
+        actions[0] = car.OP_ACC
+        obs_list = env.step(actions)
+        # obs, rew, done, _ = env.step(actions)
         # _sum = 0
         # for row in obs:
         #     for col in row:
         #         _sum += col
         # if abs(_sum) > 20:
-        #     draw_digit(obs, obs.shape[0])
+        obs = obs_list[0][0]
+        # draw_digit(obs, obs.shape[0])
         #     car.dir += 0.3
 
         for event in pygame.event.get():

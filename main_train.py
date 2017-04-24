@@ -15,6 +15,8 @@ def make_agent(env, obs_size, n_actions):
         obs_size, n_actions, n_hidden_channels, n_hidden_layers
     )
 
+    # q_func.to_gpu(0)
+
     # 最適化関数の設定
     optimizer = chainer.optimizers.Adam(1e-2)
     optimizer.setup(q_func)
@@ -31,8 +33,8 @@ def make_agent(env, obs_size, n_actions):
 
     agent = chainerrl.agents.DoubleDQN(
         q_func, optimizer, replay_buffer, gamma, explorer,
-        replay_start_size=500, update_frequency=1,
-        target_update_frequency=100
+        replay_start_size=500, update_interval=1,
+        target_update_interval=100
     )
     return agent
 
@@ -55,15 +57,15 @@ def train_mine(env, agent):
         t = 0
         while not done and t < max_episode_len:
             action_list = []
-            for i, obs in enumerate(obs_list):
-                action = agent.act_and_train(obs, reward[i])
+            for j, obs in enumerate(obs_list):
+                action = agent.act_and_train(obs, reward[j])
                 action_list.append(action)
             environment = env.step(action_list)
             # obs, reward, done, info = env.step(action_list)
-            for i, (obs, rew, done, info) in enumerate(environment):
-                R[i] += rew
-                reward[i] = rew
-                obs_list[i] = obs
+            for j, (obs, rew, done, info) in enumerate(environment):
+                R[j] += rew
+                reward[j] = rew
+                obs_list[j] = obs
                 log.append(
                     "car=%s rew=%f" %
                     (info, rew)
@@ -93,7 +95,7 @@ def play(env, agent):
     n_episodes回訓練を行う
     """
     import canvas
-    n_episodes = 1000
+    n_episodes = 10
     max_episode_len = 200
     n_agents = env.N_AGENTS
     log = []
@@ -110,9 +112,9 @@ def play(env, agent):
                 action_list.append(action)
             environment = env.step(action_list)
             t += 1
-            for i, (obs, rew, done, info) in enumerate(environment):
-                R[i] += rew
-                obs_list[i] = obs
+            for j, (obs, rew, done, info) in enumerate(environment):
+                R[j] += rew
+                obs_list[j] = obs
             pos_list.append(env.get_vecs())
             if t % 10 == 0:
                 print(t)

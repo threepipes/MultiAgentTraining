@@ -37,8 +37,8 @@ def cross(a, b):
 def same(a, b):
     return abs(a[0]-b[0]) < 1e-8 and abs(a[1]-b[1]) < 1e-8
 
-CAR_SITE_R = 20
-FIELD_SIZE = 200
+CAR_SITE_R = 30
+FIELD_SIZE = 60
 MAP_SIZE = (FIELD_SIZE + 50)*2
 OFFSET = MAP_SIZE//2
 
@@ -53,19 +53,21 @@ class Cource:
     def __init__(self):
         self.turn = 0
         self.action_space = spaces.Discrete(self.ACTIONS)
+        self.field = np.zeros((MAP_SIZE, MAP_SIZE))
+        self._rewrite_map()
 
     def reset(self):
         """
         環境の初期化をする
         """
-        self.field = np.zeros((MAP_SIZE, MAP_SIZE))
-        self._rewrite_map()
+        self.initial_map = np.array(self.field)
         self.cars = []
 
         for i in range(self.N_AGENTS):
             car_dir = np.random.rand() * math.pi*2 - math.pi
-            pos_dir = np.random.rand() * math.pi*2 - math.pi
-            dist = np.random.rand() * 3 + self.FIELD_R/2
+            # pos_dir = np.random.rand() * math.pi*2 - math.pi
+            pos_dir = np.random.rand() / 5
+            dist = i * 15 + self.FIELD_R/2
             x = np.cos(pos_dir)*dist
             y = np.sin(pos_dir)*dist
             self.cars.append(Car(x, y, car_dir, i))
@@ -107,19 +109,19 @@ class Cource:
         if len(actions) != len(self.cars):
             print('Action number is wrong.')
             return
-        self._rewrite_map()
+        self.field = np.array(self.initial_map)
         result = []
         for action, car in zip(actions, self.cars):
             pre_vec = car.get_vec()
             car.update(action)
             dist = car._dist()
             reward = 0
-            if dist >= self.FIELD_R:
-                car.force_move(dist, dist-self.FIELD_R)
+            if dist + car.CAR_R >= self.FIELD_R:
+                car.force_move(dist, dist + car.CAR_R - self.FIELD_R)
+                reward -= 5
             done = self.turn >= 2000
-            reward += math.sqrt(dist2(car.get_vec(), pre_vec))/self.FIELD_R
+            reward += math.sqrt(dist2(car.get_vec(), pre_vec))
             info = str(car)
-            result.append((car.observe(self.field), reward, done, info))
             dx = int(car.x) + OFFSET
             dy = int(car.y) + OFFSET
             filter_len = len(self.car_filter)
@@ -127,7 +129,10 @@ class Cource:
                 dx-car.CAR_R : dx-car.CAR_R+filter_len,
                 dy-car.CAR_R : dy-car.CAR_R+filter_len
             ]
-            _field = np.maximum(_field, self.car_filter)
+            self.field[
+                dx-car.CAR_R : dx-car.CAR_R+filter_len,
+                dy-car.CAR_R : dy-car.CAR_R+filter_len
+            ] = np.maximum(_field, self.car_filter)
             # for i in range(len(self.car_filter)):
             #     for j in range(len(self.car_filter)):
             #         self.field[i-car.CAR_R+dx][j-car.CAR_R+dy] |= self.car_filter[i][j]
@@ -135,7 +140,12 @@ class Cource:
                 if other.id == car.id:
                     continue
                 if car.collide(other):
-                    reward -= 10
+                    reward -= (car.CAR_R * 2 - car.dist_car(other)) / car.CAR_R
+            result.append([None, reward, done, info])
+
+        for i, car in enumerate(self.cars):
+            result[i][0] = car.observe(self.field)
+            result[i] = (result[i][0], result[i][1], result[i][2], result[i][3])
 
         self.turn += 1
         return result
@@ -182,8 +192,8 @@ class Car:
     OP_LT = 8     # 左ハンドル操作
     HND_GRD = 0.3 # 方向転換の度合い
     SPEED = 0.15   # アクセルの加速度
-    SPEED_DEC = 0.9 # 減速度
-    MAX_SPEED = 3
+    SPEED_DEC = 0.7 # 減速度
+    MAX_SPEED = 2
 
     CAR_R = 8
     SITE_R = CAR_SITE_R
@@ -211,7 +221,7 @@ class Car:
         ]
         sub_map = ndimage.interpolation.rotate(
             sub_map,
-            math.degrees(-self.dir+math.pi/2),
+            math.degrees(-self.dir),
             reshape=False
         )[
             self.SITE_R_DIFF : self.SITE_R_DIFF + self.SITE_R*2,
@@ -238,6 +248,9 @@ class Car:
 
     def collide(self, car):
         return (self.x-car.x)**2 + (self.y-car.y)**2 < (self.CAR_R*2) ** 2
+
+    def dist_car(self, car):
+        return math.sqrt((self.x-car.x)**2 + (self.y-car.y)**2)
 
     def update(self, action):
         """
