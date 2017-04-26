@@ -2,7 +2,8 @@
 import math
 from gym import spaces
 import numpy as np
-from scipy import ndimage
+import shapely.geometry as sg
+import shapely.affinity as sa
 
 """
 2次元フィールド上で車を動かすシミュレーションのモデル
@@ -54,25 +55,22 @@ class Cource:
         self.turn = 0
         self.action_space = spaces.Discrete(self.ACTIONS)
         self.field = np.zeros((MAP_SIZE, MAP_SIZE))
-        self._rewrite_map()
+        self.circle = sg.Point(0, 0).buffer(self.FIELD_R).boundary
 
     def reset(self):
         """
         環境の初期化をする
         """
-        self.initial_map = np.array(self.field)
         self.cars = []
 
         for i in range(self.N_AGENTS):
             car_dir = np.random.rand() * math.pi*2 - math.pi
-            # pos_dir = np.random.rand() * math.pi*2 - math.pi
-            pos_dir = np.random.rand() / 5
+            pos_dir = np.random.rand() * math.pi*2 - math.pi
+            # pos_dir = np.random.rand() / 5
             dist = i * 15 + self.FIELD_R/2
             x = np.cos(pos_dir)*dist
             y = np.sin(pos_dir)*dist
             self.cars.append(Car(x, y, car_dir, i))
-        # self.car = Car(8, 0, math.pi/2)
-        self.car_filter = self.cars[0].get_filter()
         self.turn = 0
         return self.get_observes()
 
@@ -109,7 +107,6 @@ class Cource:
         if len(actions) != len(self.cars):
             print('Action number is wrong.')
             return
-        self.field = np.array(self.initial_map)
         result = []
         for action, car in zip(actions, self.cars):
             pre_vec = car.get_vec()
@@ -118,24 +115,10 @@ class Cource:
             reward = 0
             if dist + car.CAR_R >= self.FIELD_R:
                 car.force_move(dist, dist + car.CAR_R - self.FIELD_R)
-                reward -= 5
+                reward -= 1
             done = self.turn >= 2000
-            reward += math.sqrt(dist2(car.get_vec(), pre_vec))
+            reward += math.sqrt(dist2(car.get_vec(), pre_vec)) * dist / self.FIELD_R
             info = str(car)
-            dx = int(car.x) + OFFSET
-            dy = int(car.y) + OFFSET
-            filter_len = len(self.car_filter)
-            _field = self.field[
-                dx-car.CAR_R : dx-car.CAR_R+filter_len,
-                dy-car.CAR_R : dy-car.CAR_R+filter_len
-            ]
-            self.field[
-                dx-car.CAR_R : dx-car.CAR_R+filter_len,
-                dy-car.CAR_R : dy-car.CAR_R+filter_len
-            ] = np.maximum(_field, self.car_filter)
-            # for i in range(len(self.car_filter)):
-            #     for j in range(len(self.car_filter)):
-            #         self.field[i-car.CAR_R+dx][j-car.CAR_R+dy] |= self.car_filter[i][j]
             for other in self.cars:
                 if other.id == car.id:
                     continue
@@ -144,21 +127,11 @@ class Cource:
             result.append([None, reward, done, info])
 
         for i, car in enumerate(self.cars):
-            result[i][0] = car.observe(self.field)
+            result[i][0] = car.observe(self, self.cars)
             result[i] = (result[i][0], result[i][1], result[i][2], result[i][3])
 
         self.turn += 1
         return result
-
-    def _rewrite_map(self):
-        shape = self.field.shape
-        sq_size = self.FIELD_R**2
-        for i in range(shape[0]):
-            for j in range(shape[1]):
-                if (i-OFFSET)**2 + (j-OFFSET)**2 > sq_size:
-                    self.field[i][j] = 1
-                else:
-                    self.field[i][j] = 0
 
     def _calc_angle_diff(self, a, b):
         if same(a, b):
@@ -179,6 +152,47 @@ class Cource:
         for car in self.cars:
             vecs.append(car.get_vec())
         return vecs
+
+
+class Radar:
+    RADAR_N = 5
+    RADAR_LEN = 100
+    VISION = 100
+    def __init__(self, car):
+        self.car = car
+        _dir = - self.VISION / 2
+        self.lines = []
+        car_dir = car.dir
+        line_base = sg.LineString([(0, 0), (100, 0)])
+        for i in range(self.RADAR_N):
+            line = sa.rotate(line_base, _dir + car_dir, origin=(0, 0))
+            _dir += self.VISION / (self.RADAR_N - 1)
+            self.lines.append(line)
+
+    def rotate(self, _dir):
+        car_pos = (self.car.x, self.car.y)
+        for i in range(self.RADAR_N):
+            self.lines[i] = sa.rotate(self.lines[i], _dir, origin=car_pos)
+
+    def reset(self):
+        self.dist_field = [0] * self.RADAR_N
+        self.dist_car = [0] * self.RADAR_N
+
+    def intersect(self, dist, other):
+        circle = other.circle
+        center = self.car.center
+        for i, line in enumerate(self.lines):
+            for pos in circle.intersection(line):
+                d = 1 - center.distance(pos) / self.RADAR_LEN
+                dist[i] = max(dist[i], d)
+
+    def find_intersects(self, field, car_list):
+        self.intersect(self.dist_field, field)
+        for _car in car_list:
+            if _car.id == self.car.id:
+                continue
+            self.intersect(self.dist_car, _car)
+        return [self.dist_field, self.dist_car]
 
 
 class Car:
@@ -209,33 +223,17 @@ class Car:
         self.v = 0
         self.dir = _dir
 
-    def observe(self, _map):
-        """
-        周囲SITE_Rの景色を返す
-        """
-        x = int(self.x)
-        y = int(self.y)
-        sub_map = _map[
-            OFFSET+x-self.SITE_R_LARGE : OFFSET+x+self.SITE_R_LARGE,
-            OFFSET+y-self.SITE_R_LARGE : OFFSET+y+self.SITE_R_LARGE
-        ]
-        sub_map = ndimage.interpolation.rotate(
-            sub_map,
-            math.degrees(-self.dir),
-            reshape=False
-        )[
-            self.SITE_R_DIFF : self.SITE_R_DIFF + self.SITE_R*2,
-            self.SITE_R_DIFF : self.SITE_R_DIFF + self.SITE_R*2
-        ]
-        return np.array(sub_map, dtype=np.float32)
+        self.radar = Radar(self)
+        self.center = sg.Point(_x, _y)
+        self.circle = self.center.buffer(self.CAR_R).boundary
 
-    def get_filter(self):
-        fil = [[0]*self.CAR_R*2 for i in range(self.CAR_R*2)]
-        for i in range(self.CAR_R*2):
-            for j in range(self.CAR_R*2):
-                if (i-self.CAR_R)**2 + (j-self.CAR_R)**2 < self.CAR_R**2:
-                    fil[i][j] = 1
-        return np.array(fil)
+    def observe(self, field, car_list):
+        """
+        レーダーの観察を返す
+        """
+        self.radar.reset()
+        dists = self.radar.find_intersects(field, car_list)
+        return np.array(dists, dtype=np.float32)
 
     def _dist(self):
         return math.sqrt(self.x**2 + self.y**2)
@@ -288,10 +286,12 @@ class Car:
     def _op_handle(self, op):
         if op & self.OP_RT:
             self.dir += self.HND_GRD
+            self.radar.rotate(self.HND_GRD)
             if self.dir >= math.pi:
                 self.dir -= math.pi*2
         elif op & self.OP_LT:
             self.dir -= self.HND_GRD
+            self.radar.rotate(-self.HND_GRD)
             if self.dir < -math.pi:
                 self.dir += math.pi*2
 
