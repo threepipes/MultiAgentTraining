@@ -13,7 +13,7 @@ def print_info(str_list, screen):
     sysfont = pygame.font.SysFont(None, 20)
     for i, row in enumerate(str_list):
         # テキストを描画したSurfaceを作成
-        string = sysfont.render(row, False, (200,200,200))
+        string = sysfont.render(row, False, (200, 200, 200))
         screen.blit(string, (10, i*20))
 
 

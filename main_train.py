@@ -45,7 +45,7 @@ def train_mine(env, agent, agent_sub):
     1ゲームあたりmax_episode_lenの長さで
     n_episodes回訓練を行う
     """
-    n_episodes = 50
+    n_episodes = 1440
     max_episode_len = 400
     n_agents = env.N_AGENTS
     log = []
@@ -147,7 +147,7 @@ if __name__ == '__main__':
     agent = make_agent(env, obs_size, n_actions)
     agent_sub = make_agent(env, obs_size, n_actions)
 
-    save_path = 'agent/radar_size_10'
+    save_path = 'agent/radar_clockwise'
     # agent.load(save_path)
 
     # training

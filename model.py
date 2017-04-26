@@ -12,15 +12,16 @@ import shapely.affinity as sa
 def angle(a, b):
     dist_a = dist(a)
     dist_b = dist(b)
-    if abs(a[0]-b[0]) < 1e-2 and abs(a[1]-b[1]) < 1e-2:
-        return 0
+    # if abs(a[0]-b[0]) < 1e-2 and abs(a[1]-b[1]) < 1e-2:
+    #     return 0
     try:
         return math.acos((a[0]*b[0] + a[1]*b[1]) / (dist_a*dist_b)) \
            * np.sign(cross(a, b))
     except:
-        print(a)
-        print(b)
-        raise
+        return 0
+        # print(a)
+        # print(b)
+        # raise
 
 def intersection(circle, line):
     points = circle.intersection(line)
@@ -47,6 +48,15 @@ def same(a, b):
 FIELD_SIZE = 60
 RADAR_SIZE = 10
 RADAR_TYPE = 2
+
+class Vec:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def add(self, tuple_vec):
+        self.x += tuple_vec[0]
+        self.y += tuple_vec[1]
 
 class Cource:
     """
@@ -112,6 +122,7 @@ class Cource:
             print('Action number is wrong.')
             return
         result = []
+        move_vec = []
         for action, car in zip(actions, self.cars):
             pre_vec = car.get_vec()
             car.update(action)
@@ -121,14 +132,25 @@ class Cource:
                 car.force_move(dist, dist + car.CAR_R - self.FIELD_R)
                 reward -= 1
             done = self.turn >= 2000
-            reward += math.sqrt(dist2(car.get_vec(), pre_vec)) * dist / self.FIELD_R
+            reward += angle(car.get_vec(), pre_vec) * dist / self.FIELD_R
             info = str(car)
+            vec = Vec(0, 0)
             for other in self.cars:
                 if other.id == car.id:
                     continue
                 if car.collide(other):
                     reward -= (car.CAR_R * 2 - car.dist_car(other)) / car.CAR_R * 3
+                    distance = math.sqrt((car.x - other.x)**2 + (car.y - other.y)**2)
+                    intersect = (2 * car.CAR_R - distance) / 2
+                    vec.add((
+                        (car.x - other.x) * intersect / distance,
+                        (car.y - other.y) * intersect / distance
+                    ))
             result.append([None, reward, done, info])
+            move_vec.append(vec)
+
+        for car, vec in zip(self.cars, move_vec):
+            car.move(vec.x, vec.y)
 
         for i, car in enumerate(self.cars):
             result[i][0] = car.observe(self, self.cars)
