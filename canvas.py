@@ -8,6 +8,19 @@ import matplotlib.pyplot as plt
 キーボードの左右で履歴の再生，巻き戻し
 """
 
+def print_info(str_list, screen):
+    # フォントの作成
+    sysfont = pygame.font.SysFont(None, 20)
+    for i, row in enumerate(str_list):
+        # テキストを描画したSurfaceを作成
+        string = sysfont.render(row, False, (200,200,200))
+        screen.blit(string, (10, i*20))
+
+
+def sub_vec(a, b, val):
+    c = (-a[0]+b[0], -a[1]+b[1])
+    return (int(a[0]+c[0]*val), int(a[1]+c[1]*val))
+
 CAR_R = 8
 
 def draw(pos_list):
@@ -23,6 +36,7 @@ def draw(pos_list):
         pygame.display.update()
         pygame.time.wait(30)
         screen.fill((0, 20, 0, 0))
+        pygame.draw.circle(screen, (0, 200, 0), (w//2, h//2), 60, 1)
         if turn < len(pos_list):
             for pos in pos_list[turn]:
                 x = ox + int(pos[0])
@@ -82,11 +96,7 @@ if __name__ == '__main__':
         pygame.display.update()
         pygame.time.wait(33)
         screen.fill((0, 20, 0, 0))
-        for c in cars:
-            x =  int(c.x) + ox
-            y = -int(c.y) + oy
-            pygame.draw.circle(screen, (0, 200, 0), (x, y), CAR_R)
-            pygame.draw.line(screen, (100, 200, 0), (x, y), (ox, oy))
+
         command = 0
         pressed = pygame.key.get_pressed()
         if pressed[pygame.K_LEFT]:
@@ -97,8 +107,28 @@ if __name__ == '__main__':
             command |= car.OP_ACC
         if pressed[pygame.K_x]:
             command |= car.OP_BRK
-        actions[0] = car.OP_ACC
+        actions[0] = command
         obs_list = env.step(actions)
+
+        message = []
+
+        pygame.draw.circle(screen, (0, 200, 0), (w//2, h//2), env.FIELD_R, 1)
+        for c in cars:
+            x =  int(c.x) + ox
+            y = -int(c.y) + oy
+            pygame.draw.circle(screen, (0, 200, 0), (x, y), CAR_R)
+            # pygame.draw.line(screen, (100, 200, 0), (x, y), (ox, oy))
+            message.append(str(obs_list[c.id][0][0]))
+            for i, radar in enumerate(c.get_radar_lines()):
+                p1 = (int(radar[0][0]+ox), int(-radar[0][1]+oy))
+                p2 = (int(radar[1][0]+ox), int(-radar[1][1]+oy))
+                pygame.draw.line(screen, (200, 200, 0), p1, p2)
+                val_f = obs_list[c.id][0][0][i]
+                pygame.draw.circle(screen, (200, 0, 0), sub_vec(p1, p2, 1-val_f), 3)
+                val_c = obs_list[c.id][0][1][i]
+                pygame.draw.circle(screen, (0, 0, 200), sub_vec(p1, p2, 1-val_c), 3)
+
+        print_info(message, screen)
         # obs, rew, done, _ = env.step(actions)
         # _sum = 0
         # for row in obs:

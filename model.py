@@ -22,6 +22,11 @@ def angle(a, b):
         print(b)
         raise
 
+def intersection(circle, line):
+    points = circle.intersection(line)
+    if isinstance(points, sg.Point):
+        return [points]
+    return list(points.geoms)
 
 def dist(a):
     return math.sqrt(a[0]**2 + a[1]**2)
@@ -38,23 +43,22 @@ def cross(a, b):
 def same(a, b):
     return abs(a[0]-b[0]) < 1e-8 and abs(a[1]-b[1]) < 1e-8
 
-CAR_SITE_R = 30
+
 FIELD_SIZE = 60
-MAP_SIZE = (FIELD_SIZE + 50)*2
-OFFSET = MAP_SIZE//2
+RADAR_SIZE = 10
+RADAR_TYPE = 2
 
 class Cource:
     """
     Carが動くフィールドを表す(2次元空間)
     """
     ACTIONS = 11     # 取れる行動の種類数
-    OBS_SIZE = (CAR_SITE_R*2)**2
+    OBS_SIZE = RADAR_SIZE * RADAR_TYPE
     FIELD_R = FIELD_SIZE
     N_AGENTS = 4
     def __init__(self):
         self.turn = 0
         self.action_space = spaces.Discrete(self.ACTIONS)
-        self.field = np.zeros((MAP_SIZE, MAP_SIZE))
         self.circle = sg.Point(0, 0).buffer(self.FIELD_R).boundary
 
     def reset(self):
@@ -77,7 +81,7 @@ class Cource:
     def get_observes(self):
         obs = []
         for car in self.cars:
-            obs.append(car.observe(self.field))
+            obs.append(car.observe(self, self.cars))
         return obs
 
     def render(self):
@@ -123,7 +127,7 @@ class Cource:
                 if other.id == car.id:
                     continue
                 if car.collide(other):
-                    reward -= (car.CAR_R * 2 - car.dist_car(other)) / car.CAR_R
+                    reward -= (car.CAR_R * 2 - car.dist_car(other)) / car.CAR_R * 3
             result.append([None, reward, done, info])
 
         for i, car in enumerate(self.cars):
@@ -155,7 +159,7 @@ class Cource:
 
 
 class Radar:
-    RADAR_N = 5
+    RADAR_N = RADAR_SIZE
     RADAR_LEN = 100
     VISION = 100
     def __init__(self, car):
@@ -165,14 +169,24 @@ class Radar:
         car_dir = car.dir
         line_base = sg.LineString([(0, 0), (100, 0)])
         for i in range(self.RADAR_N):
-            line = sa.rotate(line_base, _dir + car_dir, origin=(0, 0))
+            line = sa.rotate(
+                line_base,
+                math.radians(_dir) + car_dir,
+                origin=(0, 0),
+                use_radians=True
+            )
             _dir += self.VISION / (self.RADAR_N - 1)
             self.lines.append(line)
+        self.translate(car.x, car.y)
 
     def rotate(self, _dir):
         car_pos = (self.car.x, self.car.y)
         for i in range(self.RADAR_N):
-            self.lines[i] = sa.rotate(self.lines[i], _dir, origin=car_pos)
+            self.lines[i] = sa.rotate(self.lines[i], _dir, origin=car_pos, use_radians=True)
+
+    def translate(self, dx, dy):
+        for i in range(self.RADAR_N):
+            self.lines[i] = sa.translate(self.lines[i], dx, dy)
 
     def reset(self):
         self.dist_field = [0] * self.RADAR_N
@@ -182,7 +196,7 @@ class Radar:
         circle = other.circle
         center = self.car.center
         for i, line in enumerate(self.lines):
-            for pos in circle.intersection(line):
+            for pos in intersection(circle, line):
                 d = 1 - center.distance(pos) / self.RADAR_LEN
                 dist[i] = max(dist[i], d)
 
@@ -193,6 +207,9 @@ class Radar:
                 continue
             self.intersect(self.dist_car, _car)
         return [self.dist_field, self.dist_car]
+
+    def get_lines(self):
+        return [list(line.coords) for line in self.lines]
 
 
 class Car:
@@ -206,13 +223,10 @@ class Car:
     OP_LT = 8     # 左ハンドル操作
     HND_GRD = 0.3 # 方向転換の度合い
     SPEED = 0.15   # アクセルの加速度
-    SPEED_DEC = 0.7 # 減速度
+    SPEED_DEC = 0.8 # 減速度
     MAX_SPEED = 2
 
     CAR_R = 8
-    SITE_R = CAR_SITE_R
-    SITE_R_LARGE = int(SITE_R*1.5)
-    SITE_R_DIFF = SITE_R_LARGE - SITE_R
     def __init__(self, _x, _y, _dir, _id):
         """
         現在位置と向き(絶対角度)を持つ
@@ -234,6 +248,9 @@ class Car:
         self.radar.reset()
         dists = self.radar.find_intersects(field, car_list)
         return np.array(dists, dtype=np.float32)
+
+    def get_radar_lines(self):
+        return self.radar.get_lines()
 
     def _dist(self):
         return math.sqrt(self.x**2 + self.y**2)
@@ -264,8 +281,9 @@ class Car:
         else:
             self._speed_down()
 
-        self.x += math.cos(self.dir) * self.v
-        self.y += math.sin(self.dir) * self.v
+        dx = math.cos(self.dir) * self.v
+        dy = math.sin(self.dir) * self.v
+        self.move(dx, dy)
 
     def _speed_down(self):
         self.v *= self.SPEED_DEC
@@ -295,12 +313,18 @@ class Car:
             if self.dir < -math.pi:
                 self.dir += math.pi*2
 
+    def move(self, dx, dy):
+        self.x += dx
+        self.y += dy
+        self.radar.translate(dx, dy)
+        self.center = sa.translate(self.center, dx, dy)
+        self.circle = sa.translate(self.circle, dx, dy)
+
     def force_move(self, dist, force):
         """
         (0, 0)方向にforce動かす
         """
-        self.x -= self.x/dist * force
-        self.y -= self.y/dist * force
+        self.move(-self.x/dist * force, -self.y/dist * force)
 
     def __str__(self):
         return '(%f, %f: %f)' % (self.x, self.y, self.dir)

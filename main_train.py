@@ -39,26 +39,32 @@ def make_agent(env, obs_size, n_actions):
     return agent
 
 
-def train_mine(env, agent):
+def train_mine(env, agent, agent_sub):
     """
     自分でループを組むtraining
     1ゲームあたりmax_episode_lenの長さで
     n_episodes回訓練を行う
     """
     n_episodes = 50
-    max_episode_len = 200
+    max_episode_len = 400
     n_agents = env.N_AGENTS
     log = []
+    tmpfile = 'agent/tmp'
     for i in range(1, n_episodes + 1):
         obs_list = env.reset()
         reward = [0] * n_agents
         done = False
         R = [0] * n_agents
         t = 0
+        if i > 1:
+            agent_sub.load(tmpfile)
         while not done and t < max_episode_len:
             action_list = []
             for j, obs in enumerate(obs_list):
-                action = agent.act_and_train(obs, reward[j])
+                if j == 0:
+                    action = agent.act_and_train(obs, reward[j])
+                else:
+                    action = agent_sub.act(obs)
                 action_list.append(action)
             environment = env.step(action_list)
             # obs, reward, done, info = env.step(action_list)
@@ -82,6 +88,8 @@ def train_mine(env, agent):
             env.render()
         for obs, rew, done, info in environment[:1]:
             agent.stop_episode_and_train(obs, rew, done)
+        agent_sub.stop_episode()
+        agent.save(tmpfile)
 
     print('Finished')
     return log
@@ -95,8 +103,8 @@ def play(env, agent):
     n_episodes回訓練を行う
     """
     import canvas
-    n_episodes = 10
-    max_episode_len = 200
+    n_episodes = 5
+    max_episode_len = 500
     n_agents = env.N_AGENTS
     log = []
     for i in range(1, n_episodes + 1):
@@ -137,13 +145,14 @@ if __name__ == '__main__':
     obs_size = env.OBS_SIZE
     n_actions = env.ACTIONS
     agent = make_agent(env, obs_size, n_actions)
+    agent_sub = make_agent(env, obs_size, n_actions)
 
-    save_path = 'agent/circle_2'
+    save_path = 'agent/radar_size_10'
     # agent.load(save_path)
 
     # training
-    train_mine(env, agent)
-    # agent.save(save_path)
+    train_mine(env, agent, agent_sub)
+    agent.save(save_path)
 
     # 訓練済みのagentを使ってテスト
     play(env, agent)
