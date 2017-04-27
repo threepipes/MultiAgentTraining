@@ -17,9 +17,14 @@ def angle(a, b):
         return math.acos((a[0]*b[0] + a[1]*b[1]) / (dist_a*dist_b)) \
            * np.sign(cross(a, b))
     except:
-        print(a)
-        print(b)
-        raise
+        return 0
+        # print(a)
+        # print(b)
+        # raise
+
+
+def rotate(a, rad):
+    return (a[0]*math.cos(rad)-a[1]*math.sin(rad), a[0]*math.sin(rad)+a[1]*math.cos(rad))
 
 
 def dist(a):
@@ -38,7 +43,7 @@ def same(a, b):
     return abs(a[0]-b[0]) < 1e-8 and abs(a[1]-b[1]) < 1e-8
 
 CAR_SITE_R = 30
-FIELD_SIZE = 60
+FIELD_SIZE = 50
 MAP_SIZE = (FIELD_SIZE + 50)*2
 OFFSET = MAP_SIZE//2
 
@@ -65,9 +70,11 @@ class Cource:
 
         for i in range(self.N_AGENTS):
             car_dir = np.random.rand() * math.pi*2 - math.pi
-            # pos_dir = np.random.rand() * math.pi*2 - math.pi
-            pos_dir = np.random.rand() / 5
-            dist = i * 15 + self.FIELD_R/2
+            pos_dir = np.random.rand() * math.pi*2 - math.pi
+            # pos_dir = np.random.rand() / 5
+            if i == 0:
+                pos_dir = 0
+            dist = np.random.rand() * self.FIELD_R/2 + self.FIELD_R/2
             x = np.cos(pos_dir)*dist
             y = np.sin(pos_dir)*dist
             self.cars.append(Car(x, y, car_dir, i))
@@ -118,9 +125,13 @@ class Cource:
             reward = 0
             if dist + car.CAR_R >= self.FIELD_R:
                 car.force_move(dist, dist + car.CAR_R - self.FIELD_R)
-                reward -= 5
+                # reward -= 1
             done = self.turn >= 2000
-            reward += math.sqrt(dist2(car.get_vec(), pre_vec))
+            # reward += angle(car.get_vec(), pre_vec) * (car._dist() / FIELD_SIZE) * 5
+            agl = angle(car.get_vec(), car.flag)
+            if 0 < agl < math.pi / 4:
+                reward += car._dist() / FIELD_SIZE * 5
+                car.flag = rotate(car.get_vec(), - math.pi / 8)
             info = str(car)
             dx = int(car.x) + OFFSET
             dy = int(car.y) + OFFSET
@@ -140,7 +151,7 @@ class Cource:
                 if other.id == car.id:
                     continue
                 if car.collide(other):
-                    reward -= (car.CAR_R * 2 - car.dist_car(other)) / car.CAR_R
+                    reward -= (car.CAR_R * 2 - car.dist_car(other)) / (car.CAR_R * 2)
             result.append([None, reward, done, info])
 
         for i, car in enumerate(self.cars):
@@ -190,12 +201,12 @@ class Car:
     OP_BRK = 2
     OP_RT = 4     # 右ハンドル操作
     OP_LT = 8     # 左ハンドル操作
-    HND_GRD = 0.3 # 方向転換の度合い
-    SPEED = 0.15   # アクセルの加速度
-    SPEED_DEC = 0.7 # 減速度
-    MAX_SPEED = 2
+    HND_GRD = math.pi / 6 # 方向転換の度合い
+    SPEED = 0.75   # アクセルの加速度
+    SPEED_DEC = 0.5 # 減速度
+    MAX_SPEED = 5
 
-    CAR_R = 8
+    CAR_R = 4
     SITE_R = CAR_SITE_R
     SITE_R_LARGE = int(SITE_R*1.5)
     SITE_R_DIFF = SITE_R_LARGE - SITE_R
@@ -208,6 +219,7 @@ class Car:
         self.y = _y
         self.v = 0
         self.dir = _dir
+        self.flag = rotate(self.get_vec(), - math.pi / 8)
 
     def observe(self, _map):
         """
@@ -227,7 +239,7 @@ class Car:
             self.SITE_R_DIFF : self.SITE_R_DIFF + self.SITE_R*2,
             self.SITE_R_DIFF : self.SITE_R_DIFF + self.SITE_R*2
         ]
-        return np.array(sub_map, dtype=np.float32)
+        return np.array(sub_map, dtype=np.float32)[np.newaxis, :, :]
 
     def get_filter(self):
         fil = [[0]*self.CAR_R*2 for i in range(self.CAR_R*2)]

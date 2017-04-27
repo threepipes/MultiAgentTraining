@@ -2,20 +2,44 @@
 import chainer
 import chainerrl
 from model import Cource
+import chainer.links as L
+import chainer.functions as F
+
+import canvas
+
+
+class QFunction(chainer.Chain):
+
+    def __init__(self, n_actions):
+        super(QFunction, self).__init__(
+            conv1=L.Convolution2D(1, 5, 5, stride=1), # 60 -> 56 * 5
+            conv2=L.Convolution2D(5, 2, 7), # -> 50 * 2
+            # max pooling: -> 25 * 2
+            l1=F.Linear(25 * 25 * 2, 400),
+            l2=F.Linear(400, n_actions)
+        )
+
+    def __call__(self, x, test=False):
+        h0 = F.relu(self.conv1(x))
+        h1 = F.max_pooling_2d(F.relu(self.conv2(h0)), 2)
+        h2 = F.dropout(F.relu(self.l1(h1)), train=(not test))
+        return chainerrl.action_value.DiscreteActionValue(self.l2(h2))
+
 
 def make_agent(env, obs_size, n_actions):
     """
     チュートリアル通りのagent作成
     ネットワークやアルゴリズムの決定
     """
-    n_hidden_channels = 40
-    n_hidden_layers = 5
-    # 幅n_hidden_channels，隠れ層n_hidden_layersのネットワーク
-    q_func = chainerrl.q_functions.FCStateQFunctionWithDiscreteAction(
-        obs_size, n_actions, n_hidden_channels, n_hidden_layers
-    )
+    # n_hidden_channels = 800
+    # n_hidden_layers = 4
+    # # 幅n_hidden_channels，隠れ層n_hidden_layersのネットワーク
+    # q_func = chainerrl.q_functions.FCStateQFunctionWithDiscreteAction(
+    #     obs_size, n_actions, n_hidden_channels, n_hidden_layers
+    # )
+    q_func = QFunction(n_actions)
 
-    # q_func.to_gpu(0)
+    q_func.to_gpu(0)
 
     # 最適化関数の設定
     optimizer = chainer.optimizers.Adam(1e-2)
@@ -33,19 +57,20 @@ def make_agent(env, obs_size, n_actions):
 
     agent = chainerrl.agents.DoubleDQN(
         q_func, optimizer, replay_buffer, gamma, explorer,
-        replay_start_size=500, update_interval=1,
+        replay_start_size=100, update_interval=1, gpu=0,
         target_update_interval=100
     )
     return agent
 
 
-def train_mine(env, agent):
+def train_mine(env, agent, agent_test):
     """
     自分でループを組むtraining
     1ゲームあたりmax_episode_lenの長さで
     n_episodes回訓練を行う
     """
-    n_episodes = 50
+    tmpfile = 'agent/tmp'
+    n_episodes = 2000
     max_episode_len = 200
     n_agents = env.N_AGENTS
     log = []
@@ -55,10 +80,17 @@ def train_mine(env, agent):
         done = False
         R = [0] * n_agents
         t = 0
+        if i > 1:
+            agent_test.load(tmpfile)
         while not done and t < max_episode_len:
             action_list = []
             for j, obs in enumerate(obs_list):
-                action = agent.act_and_train(obs, reward[j])
+                if j == 0:
+                    # canvas.draw_digit(obs[0], len(obs[0]))
+                    action = agent.act_and_train(obs, reward[j])
+                else:
+                    action = agent_test.act(obs)
+                    # action = 0
                 action_list.append(action)
             environment = env.step(action_list)
             # obs, reward, done, info = env.step(action_list)
@@ -82,6 +114,8 @@ def train_mine(env, agent):
             env.render()
         for obs, rew, done, info in environment[:1]:
             agent.stop_episode_and_train(obs, rew, done)
+        agent_test.stop_episode()
+        agent.save(tmpfile)
 
     print('Finished')
     return log
@@ -137,13 +171,14 @@ if __name__ == '__main__':
     obs_size = env.OBS_SIZE
     n_actions = env.ACTIONS
     agent = make_agent(env, obs_size, n_actions)
+    agent_test = make_agent(env, obs_size, n_actions)
 
-    save_path = 'agent/circle_2'
-    # agent.load(save_path)
+    save_path = 'agent/circle_multi_conv'
+    agent.load(save_path)
 
     # training
-    train_mine(env, agent)
-    # agent.save(save_path)
+    train_mine(env, agent, agent_test)
+    agent.save(save_path)
 
     # 訓練済みのagentを使ってテスト
     play(env, agent)

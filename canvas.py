@@ -2,13 +2,14 @@
 import pygame
 import sys
 import matplotlib.pyplot as plt
+import numpy as np
 
 """
 与えられた座標列を表示する
 キーボードの左右で履歴の再生，巻き戻し
 """
 
-CAR_R = 8
+CAR_R = 4
 
 def draw(pos_list):
     (w, h) = (800, 800)
