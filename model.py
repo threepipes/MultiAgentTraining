@@ -263,7 +263,7 @@ class Car:
     OP_RT = 4     # 右ハンドル操作
     OP_LT = 8     # 左ハンドル操作
     HND_GRD = 0.3 # 方向転換の度合い
-    SPEED = 0.15   # アクセルの加速度
+    SPEED = 0.8   # アクセルの加速度
     SPEED_DEC = 0.9 # 減速度
     MAX_SPEED = 5
 
@@ -318,9 +318,8 @@ class Car:
         if action & self.OP_ACC:
             self._op_accel(1)
         elif action & self.OP_BRK:
-            self._op_accel(-1)
-        else:
-            self._speed_down()
+            self._op_accel(-0.5)
+        self._speed_down()
 
         dx = math.cos(self.dir) * self.v
         dy = math.sin(self.dir) * self.v
