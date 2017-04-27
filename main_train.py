@@ -2,20 +2,21 @@
 import chainer
 import chainerrl
 from model import Cource
+import json
 
 def make_agent(env, obs_size, n_actions):
     """
     チュートリアル通りのagent作成
     ネットワークやアルゴリズムの決定
     """
-    n_hidden_channels = 40
-    n_hidden_layers = 5
+    n_hidden_channels = 1000
+    n_hidden_layers = 4
     # 幅n_hidden_channels，隠れ層n_hidden_layersのネットワーク
     q_func = chainerrl.q_functions.FCStateQFunctionWithDiscreteAction(
         obs_size, n_actions, n_hidden_channels, n_hidden_layers
     )
 
-    # q_func.to_gpu(0)
+    q_func.to_gpu(0)
 
     # 最適化関数の設定
     optimizer = chainer.optimizers.Adam(1e-2)
@@ -33,7 +34,9 @@ def make_agent(env, obs_size, n_actions):
 
     agent = chainerrl.agents.DoubleDQN(
         q_func, optimizer, replay_buffer, gamma, explorer,
-        replay_start_size=500, update_interval=1,
+        replay_start_size=500,
+        update_interval=1,
+        gpu=0,
         target_update_interval=100
     )
     return agent
@@ -45,7 +48,7 @@ def train_mine(env, agent, agent_sub):
     1ゲームあたりmax_episode_lenの長さで
     n_episodes回訓練を行う
     """
-    n_episodes = 1440
+    n_episodes = 1400
     max_episode_len = 400
     n_agents = env.N_AGENTS
     log = []
@@ -72,10 +75,10 @@ def train_mine(env, agent, agent_sub):
                 R[j] += rew
                 reward[j] = rew
                 obs_list[j] = obs
-                log.append(
-                    "car=%s rew=%f" %
-                    (info, rew)
-                )
+                # log.append(
+                #     "car=%s rew=%f" %
+                #     (info, rew)
+                # )
             t += 1
             if t % 10 == 0:
                 print(t)
@@ -85,6 +88,10 @@ def train_mine(env, agent, agent_sub):
                 'R:', R,
                 'statistics:', agent.get_statistics()
             )
+            log.append({
+                'reward': R,
+                'loss': agent.get_statistics()[1][1]
+            })
             env.render()
         for obs, rew, done, info in environment[:1]:
             agent.stop_episode_and_train(obs, rew, done)
@@ -138,6 +145,11 @@ def play(env, agent):
     return log
 
 
+def save_log_json(log, filename):
+    with open(filename, 'w') as f:
+        json.dump(log, f)
+
+
 if __name__ == '__main__':
     # 環境の作成
     env = Cource()
@@ -147,12 +159,15 @@ if __name__ == '__main__':
     agent = make_agent(env, obs_size, n_actions)
     agent_sub = make_agent(env, obs_size, n_actions)
 
-    save_path = 'agent/radar_clockwise'
-    # agent.load(save_path)
+    agent_path = 'agent/'
+    path_name = 'tmp'
+    save_path = agent_path + path_name
+    agent.load(save_path)
 
     # training
-    train_mine(env, agent, agent_sub)
-    agent.save(save_path)
+    # log = train_mine(env, agent, agent_sub)
+    # save_log_json(log, 'plot/' + path_name)
+    # agent.save(save_path)
 
     # 訓練済みのagentを使ってテスト
     play(env, agent)

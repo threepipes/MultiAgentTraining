@@ -9,7 +9,7 @@ import shapely.affinity as sa
 2次元フィールド上で車を動かすシミュレーションのモデル
 """
 
-def angle(a, b):
+def angle(a, b=(1, 0)):
     dist_a = dist(a)
     dist_b = dist(b)
     # if abs(a[0]-b[0]) < 1e-2 and abs(a[1]-b[1]) < 1e-2:
@@ -45,8 +45,8 @@ def same(a, b):
     return abs(a[0]-b[0]) < 1e-8 and abs(a[1]-b[1]) < 1e-8
 
 
-FIELD_SIZE = 60
-RADAR_SIZE = 10
+FIELD_SIZE = 100
+RADAR_SIZE = 9
 RADAR_TYPE = 2
 
 class Vec:
@@ -65,7 +65,7 @@ class Cource:
     ACTIONS = 11     # 取れる行動の種類数
     OBS_SIZE = RADAR_SIZE * RADAR_TYPE
     FIELD_R = FIELD_SIZE
-    N_AGENTS = 4
+    N_AGENTS = 10
     def __init__(self):
         self.turn = 0
         self.action_space = spaces.Discrete(self.ACTIONS)
@@ -124,29 +124,8 @@ class Cource:
         result = []
         move_vec = []
         for action, car in zip(actions, self.cars):
-            pre_vec = car.get_vec()
-            car.update(action)
-            dist = car._dist()
-            reward = 0
-            if dist + car.CAR_R >= self.FIELD_R:
-                car.force_move(dist, dist + car.CAR_R - self.FIELD_R)
-                reward -= 1
-            done = self.turn >= 2000
-            reward += angle(car.get_vec(), pre_vec) * dist / self.FIELD_R
-            info = str(car)
-            vec = Vec(0, 0)
-            for other in self.cars:
-                if other.id == car.id:
-                    continue
-                if car.collide(other):
-                    reward -= (car.CAR_R * 2 - car.dist_car(other)) / car.CAR_R * 3
-                    distance = math.sqrt((car.x - other.x)**2 + (car.y - other.y)**2)
-                    intersect = (2 * car.CAR_R - distance) / 2
-                    vec.add((
-                        (car.x - other.x) * intersect / distance,
-                        (car.y - other.y) * intersect / distance
-                    ))
-            result.append([None, reward, done, info])
+            res, vec = self.update_car(action, car)
+            result.append(res)
             move_vec.append(vec)
 
         for car, vec in zip(self.cars, move_vec):
@@ -158,6 +137,34 @@ class Cource:
 
         self.turn += 1
         return result
+
+    def update_car(self, action, car):
+        pre_vec = car.get_vec()
+        car.update(action)
+        dist = car._dist()
+        reward = 0
+        if dist + car.CAR_R >= self.FIELD_R:
+            car.force_move(dist, dist + car.CAR_R - self.FIELD_R)
+            v_to_out = math.cos(angle((car.x, -car.y)) - car.dir) * car.v
+            reward -= v_to_out / car.MAX_SPEED
+        done = self.turn >= 2000
+        reward += math.sqrt(dist2(car.get_vec(), pre_vec)) * dist / (self.FIELD_R * 80)
+        info = str(car)
+        vec = Vec(0, 0)
+        for other in self.cars:
+            if other.id == car.id:
+                continue
+            if car.collide(other):
+                v_to_other = math.cos(angle((- car.x + other.x, car.y - other.y)) - car.dir) * car.v
+                reward -= 0.1 + v_to_other * 2 / car.MAX_SPEED
+                # (car.CAR_R * 2 - car.dist_car(other)) / car.CAR_R * 3
+                distance = math.sqrt((car.x - other.x)**2 + (car.y - other.y)**2)
+                intersect = (2 * car.CAR_R - distance) / 2
+                vec.add((
+                    (car.x - other.x) * intersect / distance,
+                    (car.y - other.y) * intersect / distance
+                ))
+        return [None, reward, done, info], vec
 
     def _calc_angle_diff(self, a, b):
         if same(a, b):
@@ -182,22 +189,34 @@ class Cource:
 
 class Radar:
     RADAR_N = RADAR_SIZE
-    RADAR_LEN = 100
-    VISION = 100
+    RADAR_N_BACK = 4
+    RADAR_N_FRONT = RADAR_SIZE - RADAR_N_BACK
+    RADAR_LEN = 150
+    VISION = 80
+    VISION_BACK = 120
     def __init__(self, car):
         self.car = car
         _dir = - self.VISION / 2
         self.lines = []
         car_dir = car.dir
-        line_base = sg.LineString([(0, 0), (100, 0)])
-        for i in range(self.RADAR_N):
+        line_base = sg.LineString([(0, 0), (self.RADAR_LEN, 0)])
+        dirs = []
+        for i in range(self.RADAR_N_FRONT):
+            dirs.append(_dir)
+            _dir += self.VISION / (self.RADAR_N_FRONT - 1)
+
+        _dir = 180 - self.VISION_BACK / 2
+        for i in range(self.RADAR_N_BACK):
+            dirs.append(_dir)
+            _dir += self.VISION_BACK / (self.RADAR_N_BACK - 1)
+
+        for d in dirs:
             line = sa.rotate(
                 line_base,
-                math.radians(_dir) + car_dir,
+                math.radians(d) + car_dir,
                 origin=(0, 0),
                 use_radians=True
             )
-            _dir += self.VISION / (self.RADAR_N - 1)
             self.lines.append(line)
         self.translate(car.x, car.y)
 
@@ -245,8 +264,8 @@ class Car:
     OP_LT = 8     # 左ハンドル操作
     HND_GRD = 0.3 # 方向転換の度合い
     SPEED = 0.15   # アクセルの加速度
-    SPEED_DEC = 0.8 # 減速度
-    MAX_SPEED = 2
+    SPEED_DEC = 0.9 # 減速度
+    MAX_SPEED = 5
 
     CAR_R = 8
     def __init__(self, _x, _y, _dir, _id):

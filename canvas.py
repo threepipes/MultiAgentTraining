@@ -22,6 +22,13 @@ def sub_vec(a, b, val):
     return (int(a[0]+c[0]*val), int(a[1]+c[1]*val))
 
 CAR_R = 8
+FIELD_R = 100
+
+def dist2(a, b):
+    return (a[0]-b[0])**2 + (a[1]-b[1])**2
+
+def collide(a, b):
+    return dist2(a, b) < (CAR_R*2) ** 2
 
 def draw(pos_list):
     (w, h) = (800, 800)
@@ -36,13 +43,22 @@ def draw(pos_list):
         pygame.display.update()
         pygame.time.wait(30)
         screen.fill((0, 20, 0, 0))
-        pygame.draw.circle(screen, (0, 200, 0), (w//2, h//2), 60, 1)
+        pygame.draw.circle(screen, (0, 200, 0), (w//2, h//2), FIELD_R, 1)
         if turn < len(pos_list):
             for pos in pos_list[turn]:
+                red = 0
+                if dist2(pos, (0, 0)) > (FIELD_R - CAR_R) ** 2:
+                    red += 100
+                for other in pos_list[turn]:
+                    if other == pos:
+                        continue
+                    if collide(pos, other):
+                        red += 100
+                red = min(red, 255)
                 x = ox + int(pos[0])
                 y = oy - int(pos[1])
-                pygame.draw.circle(screen, (0, 200, 0), (x, y), CAR_R)
-                pygame.draw.line(screen, (100, 200, 0), (x, y), (ox, oy))
+                pygame.draw.circle(screen, (255, 255-red, 255-red), (x, y), CAR_R)
+                # pygame.draw.line(screen, (100, 200, 0), (x, y), (ox, oy))
         pressed = pygame.key.get_pressed()
         if pressed[pygame.K_LEFT] and turn > 0:
             turn -= 1
@@ -118,7 +134,7 @@ if __name__ == '__main__':
             y = -int(c.y) + oy
             pygame.draw.circle(screen, (0, 200, 0), (x, y), CAR_R)
             # pygame.draw.line(screen, (100, 200, 0), (x, y), (ox, oy))
-            message.append(str(obs_list[c.id][0][0]))
+            message.append(str(obs_list[c.id][1]))
             for i, radar in enumerate(c.get_radar_lines()):
                 p1 = (int(radar[0][0]+ox), int(-radar[0][1]+oy))
                 p2 = (int(radar[1][0]+ox), int(-radar[1][1]+oy))
